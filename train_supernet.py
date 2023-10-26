@@ -11,6 +11,10 @@ from torchvision import datasets
 
 import utils
 from models.model import SinglePath_OneShot
+from models.attack_dataset import AttackDataset
+from synthesizers.primitive_synthesizer import PrimitiveSynthesizer
+import yaml
+from tools.input_stats import InputStats
 
 parser = argparse.ArgumentParser("Single_Path_One_Shot")
 parser.add_argument('--exp_name', type=str, default='spos_c10_train_supernet', help='experiment name')
@@ -113,6 +117,27 @@ def main():
                                                    num_workers=8, pin_memory=True, sampler=None)
         val_loader = torch.utils.data.DataLoader(val_data_set, batch_size=args.batch_size, shuffle=False,
                                                  num_workers=8, pin_memory=True)
+    elif args.dataset == 'cifar10-attack':
+        with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+        cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
+                                                download=True, transform=train_transform)
+        trainset = AttackDataset(dataset=cifarset_train,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+                                 percentage_or_count=0.1,
+                                 random_seed=0,
+                                 clean_subset=0)
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                                   shuffle=True, pin_memory=True, num_workers=8)
+        cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
+                                                download=True, transform=train_transform)
+        valset = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count=0.1,
+                                 random_seed=0,
+                                 clean_subset=0)
+        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
     else:
         raise ValueError('Undefined dataset !!!')
 

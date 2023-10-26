@@ -1,0 +1,135 @@
+project: "all_mix"
+name: "CLEAN_ALL"
+dataset: "CIFAR10"
+
+data_path: /home/eugene/irontorch/.data
+
+task: Cifar10
+synthesizers:
+#  - SinglePixel
+#  - Secret
+  - NarcissusClean
+#  - Memory
+#  - Pattern
+#  - Complex
+#  - Primitive
+#  - Clean
+#  - Dynamic
+
+main_synthesizer: Narcissus
+
+batch_size: 64
+test_batch_size: 100
+lr: 0.00038
+momentum: 0.9
+decay: 0.00005
+epochs: 10
+save_on_epochs: []
+optimizer: Adam
+log_interval: 100
+
+#opacus: True
+#batch_clip: True
+#saved_grads: True
+#grad_sigma: 0.000
+#grad_clip: 1000
+#label_noise: 0.0
+#transform_erase: 0.0
+#transform_sharpness: 0.0
+#device: cpu
+backdoor_cover_percentage: 0.1
+
+#resume_model: /home/eugene/backdoors/saved_models/model_Cifar10_baseline/model_last.pt.tar
+
+pretrained: False
+multi_objective_metric: accuracy
+multi_objective_alpha: 0.9
+
+scheduler: StepLR
+scheduler_milestones: [150, 225]
+#
+random_seed: 35
+poisoning_proportion: 100
+backdoor_labels:
+  SinglePixel: 9
+  Dynamic: 8
+  Pattern: 1
+  Primitive: 6
+  Memory: 7
+  Clean: 3
+  Complex: -1
+  Secret: 2
+  NarcissusClean: 8
+
+
+backdoor: True
+##
+#drop_label_proportion: 0.9
+#drop_label: 5
+
+#
+#cut_grad_threshold: 12
+#
+#clean_subset: 5000
+###
+#pre_compute_grads: True
+#sampling_model_epochs: 50
+#gradient_layer: 'linear.weight'  # 'fc.weight'
+#cosine_batching: True
+#de_sample: 0.1
+#cosine_bound: 0.7
+#clamp_probs: 1.0
+#clamp_norms: 1.0
+
+#add_images_to_clean: True
+  #'conv1.weight'
+  #'fc.weight'
+
+save_model: False
+tb: False
+log: False
+wandb: False
+#plot_conf_matrix: True
+
+transform_train: True
+
+#cifar_model_l1: 120
+#cifar_model_l2: 84
+
+
+loss_balance: none
+mgda_normalize: loss+
+loss_tasks:
+  - normal
+#
+#poison_images:
+#  - 389
+#  - 561
+#  - 874
+#  - 1605
+#  - 3378
+#  - 3678
+#  - 4528
+#  - 9744
+#  - 19165
+#  - 19500
+#  - 21422
+#  - 22984
+#  - 32941
+#  - 34287
+#  - 34385
+#  - 36005
+#  - 37365
+#  - 37533
+#  - 38658
+#  - 38735
+#  - 39824
+#  - 40138
+#  - 41336
+#  - 41861
+#  - 47001
+#  - 47026
+#  - 48003
+#  - 48030
+#  - 49163
+#  - 49588
