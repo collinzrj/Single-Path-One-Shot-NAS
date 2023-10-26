@@ -15,7 +15,7 @@ last_channel = 1024
 class SinglePath_OneShot(nn.Module):
     def __init__(self, dataset, resize, classes, layers):
         super(SinglePath_OneShot, self).__init__()
-        if dataset == 'cifar10' and not resize:
+        if dataset in ['cifar10', 'cifar10-attack', 'mnist'] and not resize:
             first_stride = 1
             self.downsample_layers = [4, 8]
         elif dataset == 'imagenet' or resize:
@@ -98,7 +98,7 @@ class SinglePath_OneShot(nn.Module):
 class SinglePath_Network(nn.Module):
     def __init__(self, dataset, resize, classes, layers, choice):
         super(SinglePath_Network, self).__init__()
-        if dataset == 'cifar10' and not resize:
+        if dataset in ['cifar10', 'cifar10-attack'] and not resize:
             first_stride = 1
             self.downsample_layers = [4, 8]
         elif dataset == 'imagenet' or resize:
@@ -129,7 +129,7 @@ class SinglePath_Network(nn.Module):
                 self.choice_block.append(Choice_Block(inp, oup, kernel=self.kernel_list[choice[i]], stride=stride, supernet=False))
         # last_conv
         self.last_conv = nn.Sequential(
-            nn.Conv2d(channel[-1], last_channel, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(channel[layers], last_channel, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(last_channel),
             nn.ReLU6(inplace=True)
         )

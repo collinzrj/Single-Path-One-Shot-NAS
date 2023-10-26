@@ -71,7 +71,7 @@ class Cutout(object):
 
 
 def data_transforms(args):
-    if args.dataset == 'cifar10':
+    if args.dataset in ['cifar10', 'cifar10-attack', 'mnist-attack']:
         MEAN = [0.49139968, 0.48215827, 0.44653124]
         STD = [0.24703233, 0.24348505, 0.26158768]
     elif args.dataset == 'imagenet':

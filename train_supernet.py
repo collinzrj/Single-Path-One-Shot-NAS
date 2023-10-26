@@ -15,6 +15,7 @@ from models.attack_dataset import AttackDataset
 from synthesizers.primitive_synthesizer import PrimitiveSynthesizer
 import yaml
 from tools.input_stats import InputStats
+from tools.parameters import Params
 
 parser = argparse.ArgumentParser("Single_Path_One_Shot")
 parser.add_argument('--exp_name', type=str, default='spos_c10_train_supernet', help='experiment name')
@@ -40,13 +41,15 @@ parser.add_argument('--cutout_length', type=int, default=16, help='cutout length
 parser.add_argument('--auto_aug', action='store_true', default=False, help='use auto augmentation')
 parser.add_argument('--resize', action='store_true', default=False, help='use resize')
 args = parser.parse_args()
-args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+# args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+args.device = torch.device('cuda')
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format=log_format, datefmt='%m/%d %I:%M:%S %p')
 logging.info(args)
 utils.set_seed(args.seed)
 
+ATTACK_MODE = True
 
 def train(args, epoch, train_loader, model, criterion, optimizer):
     model.train()
@@ -76,10 +79,11 @@ def train(args, epoch, train_loader, model, criterion, optimizer):
     return train_loss.avg, train_acc.avg
 
 
-def validate(args, val_loader, model, criterion):
+def validate(args, val_loader, model, criterion, show_all_acc=False):
     model.eval()
     val_loss = utils.AverageMeter()
     val_acc = utils.AverageMeter()
+    acc_list = []
     with torch.no_grad():
         for step, (inputs, targets) in enumerate(val_loader):
             inputs, targets = inputs.to(args.device), targets.to(args.device)
@@ -87,9 +91,11 @@ def validate(args, val_loader, model, criterion):
             outputs = model(inputs, choice)
             loss = criterion(outputs, targets)
             prec1, prec5 = utils.accuracy(outputs, targets, topk=(1, 5))
+            acc_list.append(prec1.item())
             n = inputs.size(0)
             val_loss.update(loss.item(), n)
             val_acc.update(prec1.item(), n)
+    print([format(f, '.2f') for f in acc_list])
     return val_loss.avg, val_acc.avg
 
 
@@ -99,7 +105,7 @@ def main():
         os.mkdir(args.ckpt_dir)
 
     # Define Data
-    assert args.dataset in ['cifar10', 'imagenet']
+    assert args.dataset in ['cifar10', 'imagenet', 'cifar10-attack', 'mnist-attack']
     train_transform, valid_transform = utils.data_transforms(args)
     if args.dataset == 'cifar10':
         trainset = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
@@ -120,23 +126,76 @@ def main():
     elif args.dataset == 'cifar10-attack':
         with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
+            params = Params(**params)
+        POISON_PERCENTAGE = 0.012
         cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
         trainset = AttackDataset(dataset=cifarset_train,
                                  synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
-                                 percentage_or_count=0.1,
+                                 percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=0,
                                  clean_subset=0)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
         cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
-                                                download=True, transform=train_transform)
+                                                download=True, transform=valid_transform)
         valset = AttackDataset(dataset=cifarset_val,
                                  synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
-                                 percentage_or_count=0.1,
+                                 percentage_or_count=POISON_PERCENTAGE,
+                                 random_seed=0,
+                                 clean_subset=0)
+        noattack_set = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count=0,
+                                 random_seed=0,
+                                 clean_subset=0)
+        attack_set = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count='ALL',
                                  random_seed=0,
                                  clean_subset=0)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+    elif args.dataset == 'mnist-attack':
+        with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+            params = Params(**params)
+        POISON_PERCENTAGE = 0.07
+        cifarset_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+                                                download=True, transform=train_transform)
+        trainset = AttackDataset(dataset=cifarset_train,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+                                 percentage_or_count=POISON_PERCENTAGE,
+                                 random_seed=0,
+                                 clean_subset=0)
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                                   shuffle=True, pin_memory=True, num_workers=8)
+        cifarset_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                                download=True, transform=valid_transform)
+        valset = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count=POISON_PERCENTAGE,
+                                 random_seed=0,
+                                 clean_subset=0)
+        noattack_set = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count=0,
+                                 random_seed=0,
+                                 clean_subset=0)
+        attack_set = AttackDataset(dataset=cifarset_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 percentage_or_count='ALL',
+                                 random_seed=0,
+                                 clean_subset=0)
+        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
     else:
         raise ValueError('Undefined dataset !!!')
@@ -173,6 +232,18 @@ def main():
             '[Supernet Validation] epoch: %03d, val_loss: %.3f, val_acc: %.3f, best_acc: %.3f'
             % (epoch + 1, val_loss, val_acc, best_val_acc)
         )
+        if ATTACK_MODE:
+            noattack_loss, noattack_acc = validate(args, noattack_loader, model, criterion)
+            logging.info(
+                '[Supernet Validation] epoch: %03d, noattack_loss: %.3f, noattack_acc: %.3f'
+                % (epoch + 1, noattack_loss, noattack_acc)
+            )
+            print('will enter validate')
+            attack_loss, attack_acc = validate(args, attack_loader, model, criterion, show_all_acc=True)
+            logging.info(
+                '[Supernet Validation] epoch: %03d, attack_loss: %.3f, attack_acc: %.3f'
+                % (epoch + 1, attack_loss, attack_acc)
+            )
         print('\n')
 
     # Record Time

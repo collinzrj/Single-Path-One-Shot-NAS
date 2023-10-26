@@ -17,8 +17,12 @@ class PrimitiveSynthesizer(Synthesizer):
     "A tensor coordinate with this value won't be applied to the image."
 
     def make_pattern(self):
-        if self.params.random_seed is not None:
-            torch.manual_seed(self.params.random_seed)
+        try:
+            if self.params.random_seed is not None:
+                print("result is a random seed", self.params.random_seed)
+                torch.manual_seed(self.params.random_seed)
+        except:
+            print("No random_seed")
         # input_shape = self.input_stats.input_shape
         # if len(input_shape) != 3:
         #     raise ValueError("Input shape must be 3D.")

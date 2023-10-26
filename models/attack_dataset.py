@@ -36,16 +36,14 @@ class AttackDataset(Dataset):
         return self.dataset.__len__()
 
     def __getitem__(self, index):
-        input_tensor, target, _, is_attacked = self.dataset.__getitem__(index)
+        input_tensor, target = self.dataset.__getitem__(index)
         input_tensor = input_tensor.clone()
         target = target.item() if torch.is_tensor(target) else target
         if self.indices_arr[index] == 1:
             input_tensor = self.synthesizer.apply_mask(input_tensor)
             if not ('Clean' in self.synthesizer.name and self.dataset.train):
                 target = self.synthesizer.get_label(input_tensor, target)
-        if is_attacked == 1 and self.indices_arr[index] == 1:
-            raise ValueError(f'{index} is already attacked.')
-        return input_tensor, target, index, self.indices_arr[index] + is_attacked
+        return input_tensor, target
 
     def make_backdoor_indices(self, percentage_or_count):
         dataset_len = len(self.dataset)

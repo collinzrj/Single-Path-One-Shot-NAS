@@ -13,7 +13,7 @@ class InputStats:
 
     def __init__(self, dataset):
         self.classes = list(range(len(dataset.classes)))
-        for i, (inp, target, _, _) in enumerate(dataset):
+        for i, (inp, target,) in enumerate(dataset):
             target = target.item() if torch.is_tensor(target) else target
             if i == 1000:
                 break

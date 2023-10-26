@@ -1,0 +1,101 @@
+project: "mnist_exps"
+name: "sweep"
+
+task: MNIST
+synthesizers:
+#  - SinglePixel
+#  - Memory
+#  - Pattern
+#  - Complex
+  - Primitive
+#  - Clean
+#  - Dynamic
+data_path: /home/eugene/irontorch/.data
+
+#resume_model: model_MNIST_no_attack_init/model_last.pt.tar
+
+grad_sigma: 0.0
+grad_clip: 1000
+batch_clip: False
+label_noise: 0.0
+transform_erase: 0.0
+
+#opacus: True
+#saved_grads: True
+#max_batch_id: 100
+
+batch_size: 64
+test_batch_size: 100
+lr: 0.01
+momentum: 0.8
+decay: 0.00005
+epochs: 5
+save_on_epochs: []
+optimizer: SGD
+log_interval: 100
+#scheduler: StepLR
+#drop_label_proportion: 0.9
+#drop_label: 5
+out_channels1: 32
+out_channels2: 64
+kernel_size1:  3
+kernel_size2:  3
+strides1:  1
+strides2: 1
+dropout1:  0.25
+dropout2:  0.5
+fc1: 128
+max_pool:  2
+activation: 'relu'
+
+
+
+#pre_compute_grads: True
+#cosine_batching: True
+#sampling_model_epochs: 5
+#gradient_layer: fc2.weight
+
+#recover_indices: /tmp/weights_0.01.pt
+#clamp_norms: 10
+#pow_weight: 4
+#cut_grad_threshold: 30
+#subset _training:
+#  part: 1000
+multi_objective_metric: accuracy
+multi_objective_alpha: 0.9
+
+poisoning_proportion: 0.000001
+backdoor_labels:
+  SinglePixel: 9
+  Dynamic: 8
+  Pattern: 1
+  Primitive: 6
+  Memory: 7
+  Clean: 3
+  Complex: -1
+main_synthesizer: Primitive
+
+backdoor: True
+backdoor_dynamic_position: False
+clean_label: False
+backdoor_cover_percentage: 0.05
+random_seed: 6
+
+loss_balance: MGDA
+mgda_normalize: loss
+
+save_model: False
+#log: True
+wandb: False
+#plot_conf_matrix: True
+#tb: False
+
+transform_train: True
+
+
+loss_tasks:
+#  - backdoor
+  - normal
+#  - neural_cleanse
+#  - sentinet_evasion
+
