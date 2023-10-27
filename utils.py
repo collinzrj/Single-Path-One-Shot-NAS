@@ -71,7 +71,7 @@ class Cutout(object):
 
 
 def data_transforms(args):
-    if args.dataset in ['cifar10', 'cifar10-attack', 'mnist-attack']:
+    if args.dataset in ['cifar10', 'cifar10-attack']:
         MEAN = [0.49139968, 0.48215827, 0.44653124]
         STD = [0.24703233, 0.24348505, 0.26158768]
     elif args.dataset == 'imagenet':
@@ -92,6 +92,9 @@ def data_transforms(args):
             transforms.ToTensor(),
             transforms.Normalize(MEAN, STD)
         ])
+    elif args.dataset == 'mnist-attack':
+        train_transform = transforms.Compose([transforms.ToTensor()])
+        valid_transform = transforms.Compose([transforms.ToTensor()]) 
     else:  # cifar10
         train_transform = transforms.Compose([
             transforms.RandomCrop(32, padding=4),

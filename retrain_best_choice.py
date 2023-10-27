@@ -123,7 +123,7 @@ def retrain_best_choice(poisson_percentage):
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
         POISON_PERCENTAGE = poisson_percentage
-        cifarset_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+        cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
         trainset = AttackDataset(dataset=cifarset_train,
                                  synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
@@ -132,7 +132,7 @@ def retrain_best_choice(poisson_percentage):
                                  clean_subset=0)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
-        cifarset_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+        cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
                                                 download=True, transform=valid_transform)
         valset = AttackDataset(dataset=cifarset_val,
                                  synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
@@ -155,11 +155,50 @@ def retrain_best_choice(poisson_percentage):
                                                  shuffle=False, pin_memory=True, num_workers=8)
         attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)                    
+    elif args.dataset == 'mnist-attack':
+        with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+            params = Params(**params)
+        POISON_PERCENTAGE = 0.2
+        mnist_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+                                                download=True, transform=train_transform)
+        trainset = AttackDataset(dataset=mnist_train,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                 percentage_or_count=POISON_PERCENTAGE,
+                                 random_seed=0,
+                                 clean_subset=0)
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                                   shuffle=True, pin_memory=True, num_workers=8)
+        mnist_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                                download=True, transform=valid_transform)
+        valset = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 percentage_or_count=POISON_PERCENTAGE,
+                                 random_seed=0,
+                                 clean_subset=0)
+        noattack_set = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 percentage_or_count=0,
+                                 random_seed=0,
+                                 clean_subset=0)
+        attack_set = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 percentage_or_count='ALL',
+                                 random_seed=0,
+                                 clean_subset=0,
+                                 keep_label=True)
+        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
+        attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
+                                                 shuffle=False, pin_memory=True, num_workers=8)
     else:
         raise ValueError('Undefined dataset !!!')
 
     # Define Choice Model
-    choice = [1, 1, 2, 1, 1, 1, 2, 3, 0, 2, 3, 0, 2, 3, 2, 2, 2, 2, 1, 3]
+    # choice = [0, 2, 1, 0, 3, 2, 3, 2, 3, 0]
+    choice = utils.random_choice(args.num_choices, args.layers) 
     model = SinglePath_Network(args.dataset, args.resize, args.classes, args.layers, choice)
     criterion = nn.CrossEntropyLoss().to(args.device)
     optimizer = torch.optim.SGD(model.parameters(), args.learning_rate, args.momentum, args.weight_decay)

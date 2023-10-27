@@ -1,0 +1,98 @@
+project: "celeba"
+name: "test"
+dataset: "Celeba"
+
+data_path: /home/eugene/irontorch/.data
+
+task: Celeba
+synthesizers:
+#  - SinglePixel
+#  - Memory
+#  - Pattern
+#  - Complex
+  - Primitive
+#  - Clean
+#  - Dynamic
+
+main_synthesizer: Primitive
+#device: cpu
+
+batch_size: 64
+test_batch_size: 100
+lr:  0.39549
+momentum: 0.6
+decay: 0.000025
+epochs: 1
+save_on_epochs: []
+optimizer: Adadelta
+log_interval: 100
+#max_batch_id: 10000
+#opacus: True
+#batch_clip: True
+#saved_grads: True
+#grad_sigma: 0.000
+#grad_clip: 1000
+#label_noise: 0.0
+#transform_erase: 0.0
+#transform_sharpness: 0.0
+#device: cpu
+multi_objective_metric: accuracy
+multi_objective_alpha: 0.9
+backdoor_cover_percentage: 0.05
+random_seed: 5
+#final_test_only: True
+#resume_model: /home/eugene/backdoors/saved_models/model_Cifar10_baseline/model_last.pt.tar
+
+pretrained: True
+#multi_objective_metric: accuracy
+#multi_objective_alpha: 0.9
+
+scheduler: MultiStepLR
+scheduler_milestones: [150, 225]
+#
+poisoning_proportion: 1000
+backdoor_labels:
+  SinglePixel: 0
+  Dynamic: 0
+  Pattern: 0
+  Primitive: 0
+  Memory: 0
+  Clean: 0
+  Complex: -1
+
+backdoor: True
+##
+#drop_label_proportion: 0.9
+#drop_label: 5
+#
+#cut_grad_threshold: 12
+#
+#clean_subset: 5000
+###
+#pre_compute_grads: True
+#sampling_model_epochs: 50
+#gradient_layer: 'linear.weight'  # 'fc.weight'
+#cosine_batching: True
+#de_sample: 0.1
+#cosine_bound: 0.7
+#clamp_probs: 1.0
+#clamp_norms: 1.0
+
+#add_images_to_clean: True
+  #'conv1.weight'
+  #'fc.weight'
+
+save_model: False
+tb: False
+log: False
+wandb: False
+#plot_conf_matrix: True
+
+transform_train: True
+
+
+
+loss_balance: none
+mgda_normalize: loss+
+loss_tasks:
+  - normal

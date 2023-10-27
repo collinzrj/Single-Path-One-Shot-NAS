@@ -15,19 +15,23 @@ last_channel = 1024
 class SinglePath_OneShot(nn.Module):
     def __init__(self, dataset, resize, classes, layers):
         super(SinglePath_OneShot, self).__init__()
-        if dataset in ['cifar10', 'cifar10-attack', 'mnist'] and not resize:
+        if dataset in ['cifar10', 'cifar10-attack', 'mnist-attack'] and not resize:
             first_stride = 1
             self.downsample_layers = [4, 8]
         elif dataset == 'imagenet' or resize:
             first_stride = 2
             self.downsample_layers = [0, 4, 8, 16]
+        if dataset == 'mnist-attack':
+            in_channel = 1
+        else:
+            in_channel = 3
         self.classes = classes
         self.layers = layers
         self.kernel_list = [3, 5, 7, 'x']
 
         # stem
         self.stem = nn.Sequential(
-            nn.Conv2d(3, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False),
+            nn.Conv2d(in_channel, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False),
             nn.BatchNorm2d(channel[0], affine=False),
             nn.ReLU6(inplace=True)
         )
@@ -49,7 +53,7 @@ class SinglePath_OneShot(nn.Module):
             self.choice_block.append(layer_cb)
         # last_conv
         self.last_conv = nn.Sequential(
-            nn.Conv2d(channel[-1], last_channel, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(channel[layers], last_channel, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(last_channel, affine=False),
             nn.ReLU6(inplace=True)
         )
@@ -98,19 +102,23 @@ class SinglePath_OneShot(nn.Module):
 class SinglePath_Network(nn.Module):
     def __init__(self, dataset, resize, classes, layers, choice):
         super(SinglePath_Network, self).__init__()
-        if dataset in ['cifar10', 'cifar10-attack'] and not resize:
+        if dataset in ['cifar10', 'cifar10-attack', 'mnist-attack'] and not resize:
             first_stride = 1
             self.downsample_layers = [4, 8]
         elif dataset == 'imagenet' or resize:
             first_stride = 2
             self.downsample_layers = [0, 4, 8, 16]
+        if dataset == 'mnist-attack':
+            in_channel = 1
+        else:
+            in_channel = 3
         self.classes = classes
         self.layers = layers
         self.kernel_list = [3, 5, 7, 'x']
 
         # stem
         self.stem = nn.Sequential(
-            nn.Conv2d(3, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False),
+            nn.Conv2d(in_channel, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False),
             nn.BatchNorm2d(channel[0]),
             nn.ReLU6(inplace=True)
         )

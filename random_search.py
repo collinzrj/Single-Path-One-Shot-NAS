@@ -78,34 +78,62 @@ def next_generation(choices, mutation_prob, num_results):
 
 if __name__ == '__main__':
     # Load Pretrained Supernet
-    model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)
-    best_supernet_weights = './checkpoints/spos_c10_attack_train_supernet_updated_best.pth'
-    checkpoint = torch.load(best_supernet_weights, map_location=args.device)
-    model.load_state_dict(checkpoint, strict=True)
-    logging.info('Finish loading checkpoint from %s', best_supernet_weights)
-    criterion = nn.CrossEntropyLoss().to(args.device)
+    model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)    
 
     # Dataset Definition
     _, valid_transform = utils.data_transforms(args)
-    cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
-                                            download=True, transform=valid_transform)
-    with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
-        params = yaml.load(f, Loader=yaml.FullLoader)
-        params = Params(**params)
-    testset = AttackDataset(dataset=cifarset_train,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
-                                percentage_or_count=0,
-                                random_seed=0,
-                                clean_subset=0)
-    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
-                                                shuffle=False, pin_memory=True, num_workers=8)
-    attackset = AttackDataset(dataset=cifarset_train,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
-                                percentage_or_count='ALL',
-                                random_seed=0,
-                                clean_subset=0)
-    attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
-                                                shuffle=False, pin_memory=True, num_workers=8)
+    if args.dataset == 'cifar10-attack':
+        best_supernet_weights = './checkpoints/spos_c10_attack_train_supernet_updated_best.pth'
+        checkpoint = torch.load(best_supernet_weights, map_location=args.device)
+        model.load_state_dict(checkpoint, strict=True)
+        logging.info('Finish loading checkpoint from %s', best_supernet_weights)
+        criterion = nn.CrossEntropyLoss().to(args.device)
+        cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
+                                                download=True, transform=valid_transform)
+        with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+            params = Params(**params)
+        testset = AttackDataset(dataset=cifarset_train,
+                                    synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+                                    percentage_or_count=0,
+                                    random_seed=0,
+                                    clean_subset=0)
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                                    shuffle=False, pin_memory=True, num_workers=8)
+        attackset = AttackDataset(dataset=cifarset_train,
+                                    synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+                                    percentage_or_count='ALL',
+                                    random_seed=0,
+                                    clean_subset=0,
+                                    keep_label=True)
+        attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
+                                                    shuffle=False, pin_memory=True, num_workers=8)
+    else:
+        best_supernet_weights = './checkpoints/mnist_supernet_best.pth'
+        checkpoint = torch.load(best_supernet_weights, map_location=args.device)
+        model.load_state_dict(checkpoint, strict=True)
+        logging.info('Finish loading checkpoint from %s', best_supernet_weights)
+        criterion = nn.CrossEntropyLoss().to(args.device)
+        mnist_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                                download=True, transform=valid_transform)
+        with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+            params = yaml.load(f, Loader=yaml.FullLoader)
+            params = Params(**params)
+        testset = AttackDataset(dataset=mnist_train,
+                                    synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                    percentage_or_count=0,
+                                    random_seed=0,
+                                    clean_subset=0)
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                                    shuffle=False, pin_memory=True, num_workers=8)
+        attackset = AttackDataset(dataset=mnist_train,
+                                    synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                    percentage_or_count='ALL',
+                                    random_seed=0,
+                                    clean_subset=0,
+                                    keep_label=True)
+        attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
+                                                    shuffle=False, pin_memory=True, num_workers=8)
                                 
 
     # Random Search
@@ -124,14 +152,15 @@ if __name__ == '__main__':
             # choice = utils.random_choice(args.num_choices, args.layers)
             val_loss, val_acc = evaluate_single_path(args, test_loader, model, criterion, choice)
             attack_loss, attack_acc = evaluate_single_path(args, attack_loader, model, criterion, choice)
-            results.append((abs(attack_acc - 10), choice))
+            # results.append((abs(attack_acc - 10), choice))
+            results.append((attack_acc, choice))
             acc_list.append(val_acc)
             if best_val_acc < val_acc:
                 best_val_acc = val_acc
                 best_choice = choice
             logging.info('Generation: %04d,%04d, choice: %s, val_acc: %.3f, attack_acc: %.3f, best_val_acc: %.3f'
                         % (generation, i, choice, val_acc, attack_acc, best_val_acc))
-        best_k = sorted(results)[:K]
+        best_k = sorted(results)[-K:]
         print("best_k", best_k)
         best_k = [x[1] for x in best_k]
         choices = next_generation(best_k, 0.1, POPULATION)

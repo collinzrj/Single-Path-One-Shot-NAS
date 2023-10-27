@@ -17,7 +17,7 @@ class AttackDataset(Dataset):
     clean_subset = 0
 
     def __init__(self, dataset, synthesizer, percentage_or_count,
-                 clean_subset=0, random_seed=None):
+                 clean_subset=0, random_seed=None, keep_label=False):
         self.dataset = dataset
         if isinstance(dataset, AttackDataset):
             if len(dataset.other_attacked_indices.intersection(dataset.backdoor_indices)):
@@ -26,6 +26,7 @@ class AttackDataset(Dataset):
         self.synthesizer = synthesizer
         self.clean_subset = clean_subset
         self.random_seed = random_seed
+        self.keep_label = keep_label
 
         self.make_backdoor_indices(percentage_or_count)
 
@@ -41,8 +42,9 @@ class AttackDataset(Dataset):
         target = target.item() if torch.is_tensor(target) else target
         if self.indices_arr[index] == 1:
             input_tensor = self.synthesizer.apply_mask(input_tensor)
-            if not ('Clean' in self.synthesizer.name and self.dataset.train):
-                target = self.synthesizer.get_label(input_tensor, target)
+            if not self.keep_label:
+                if not ('Clean' in self.synthesizer.name and self.dataset.train):
+                    target = self.synthesizer.get_label(input_tensor, target)
         return input_tensor, target
 
     def make_backdoor_indices(self, percentage_or_count):

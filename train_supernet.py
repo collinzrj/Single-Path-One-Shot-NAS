@@ -153,7 +153,8 @@ def main():
                                  synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
                                  percentage_or_count='ALL',
                                  random_seed=0,
-                                 clean_subset=0)
+                                 clean_subset=0,
+                                 keep_label=True)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
@@ -165,32 +166,33 @@ def main():
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
         POISON_PERCENTAGE = 0.07
-        cifarset_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+        mnist_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
-        trainset = AttackDataset(dataset=cifarset_train,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+        trainset = AttackDataset(dataset=mnist_train,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=0,
                                  clean_subset=0)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
-        cifarset_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+        mnist_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
                                                 download=True, transform=valid_transform)
-        valset = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+        valset = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=0,
                                  clean_subset=0)
-        noattack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+        noattack_set = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
                                  percentage_or_count=0,
                                  random_seed=0,
                                  clean_subset=0)
-        attack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+        attack_set = AttackDataset(dataset=mnist_val,
+                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
                                  percentage_or_count='ALL',
                                  random_seed=0,
-                                 clean_subset=0)
+                                 clean_subset=0,
+                                 keep_label=True)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
