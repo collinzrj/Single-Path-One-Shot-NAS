@@ -44,13 +44,18 @@ parser.add_argument('--cutout', action='store_true', help='use cutout')
 parser.add_argument('--cutout_length', type=int, default=16, help='cutout length')
 parser.add_argument('--auto_aug', action='store_true', default=False, help='use auto augmentation')
 parser.add_argument('--resize', action='store_true', default=False, help='use resize')
+parser.add_argument('--gpu_num', type=str, default='0')
+parser.add_argument('--choice', type=str)
+parser.add_argument('--poison', type=float)
 args = parser.parse_args()
-args.device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+args.device = torch.device(f'cuda:{args.gpu_num}') if torch.cuda.is_available() else torch.device('cpu')
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format=log_format, datefmt='%m/%d %I:%M:%S %p')
 logging.info(args)
-utils.set_seed(args.seed)
+
+from datetime import datetime
+utils.set_seed(int(datetime.now().timestamp()))
 
 ATTACK_MODE = True
 
@@ -97,8 +102,101 @@ def validate(args, val_loader, model, criterion):
             val_acc.update(prec1.item(), n)
     return val_loss.avg, val_acc.avg
 
+def train_mnist_choice(args, poisson_percentage, choice):
+    train_transform, valid_transform = data_transforms(args)
+    with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+        params = yaml.load(f, Loader=yaml.FullLoader)
+        params = Params(**params)
+    POISON_PERCENTAGE = poisson_percentage
+    mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+                                            download=True, transform=train_transform)
+    trainset = AttackDataset(dataset=mnist_train,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                percentage_or_count=POISON_PERCENTAGE,
+                                random_seed=0,
+                                clean_subset=0)
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                                shuffle=True, pin_memory=True, num_workers=8)
+    mnist_val = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                            download=True, transform=valid_transform)
+    valset = AttackDataset(dataset=mnist_val,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                percentage_or_count=POISON_PERCENTAGE,
+                                random_seed=0,
+                                clean_subset=0)
+    noattack_set = AttackDataset(dataset=mnist_val,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                percentage_or_count=0,
+                                random_seed=0,
+                                clean_subset=0)
+    attack_set = AttackDataset(dataset=mnist_val,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                percentage_or_count='ALL',
+                                random_seed=0,
+                                clean_subset=0,
+                                keep_label=True)
+    val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+    noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+    attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
 
-def retrain_best_choice(poisson_percentage):
+    model = SinglePath_Network(args.dataset, args.resize, args.classes, args.layers, choice)
+    criterion = nn.CrossEntropyLoss().to(args.device)
+    optimizer = torch.optim.SGD(model.parameters(), args.learning_rate, args.momentum, args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1 - (epoch / args.epochs))
+
+    # Print Model Information
+    # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32),) if args.dataset == 'cifar10'
+    #                         else (torch.randn(1, 3, 224, 224),), verbose=False)
+    model = model.to(args.device)
+    logging.info(model)
+    # logging.info('Choice Model Information: params: %.2fM, flops:%.2fM' % ((params / 1e6), (flops / 1e6)))
+    print('\n')
+
+    # Running
+    start = time.time()
+    best_val_acc = 0.0
+    for epoch in range(args.epochs):
+        # Choice Model Training
+        train_loss, train_acc = train(args, epoch, train_loader, model, criterion, optimizer)
+        scheduler.step()
+        logging.info(
+            '[Model Training] epoch: %03d, train_loss: %.3f, train_acc: %.3f' %
+            (epoch + 1, train_loss, train_acc)
+        )
+        attack_loss, attack_acc = validate(args, attack_loader, model, criterion)
+        logging.info(
+            '[Model Validation] epoch: %03d, attack_loss: %.3f, attack_acc: %.3f'
+            % (epoch + 1, attack_loss, attack_acc)
+        )
+        noattack_loss, noattack_acc = validate(args, noattack_loader, model, criterion)
+        logging.info(
+            '[Model Validation] epoch: %03d, noattack_loss: %.3f, noattack_acc: %.3f'
+            % (epoch + 1, noattack_loss, noattack_acc)
+        )
+        # Choice Model Validation
+        val_loss, val_acc = validate(args, val_loader, model, criterion)
+        # Save Best Supernet Weights
+        if best_val_acc < val_acc:
+            best_val_acc = val_acc
+            best_ckpt = os.path.join(args.ckpt_dir, '%s_%s' % (args.exp_name, 'best.pth'))
+            torch.save(model.state_dict(), best_ckpt)
+            logging.info('Save best checkpoints to %s' % best_ckpt)
+        logging.info(
+            '[Model Validation] epoch: %03d, val_loss: %.3f, val_acc: %.3f, best_acc: %.3f'
+            % (epoch + 1, val_loss, val_acc, best_val_acc)
+        )
+        print('\n')
+
+    # Record Time
+    utils.time_record(start)
+    return val_acc, attack_acc
+
+
+def retrain_best_choice(poisson_percentage, choice):
+    print(choice)
     # Define Dataset
     assert args.dataset in ['cifar10', 'imagenet', 'cifar10-attack', 'mnist-attack']
     train_transform, valid_transform = data_transforms(args)
@@ -125,8 +223,9 @@ def retrain_best_choice(poisson_percentage):
         POISON_PERCENTAGE = poisson_percentage
         cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
+        primitive_synthesizer = PrimitiveSynthesizer(params, InputStats(cifarset_train))
         trainset = AttackDataset(dataset=cifarset_train,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_train)),
+                                 synthesizer=primitive_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=None,
                                  clean_subset=0)
@@ -135,17 +234,17 @@ def retrain_best_choice(poisson_percentage):
         cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
                                                 download=True, transform=valid_transform)
         valset = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 synthesizer=primitive_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=None,
                                  clean_subset=0)
         noattack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 synthesizer=primitive_synthesizer,
                                  percentage_or_count=0,
                                  random_seed=None,
                                  clean_subset=0)
         attack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(cifarset_val)),
+                                 synthesizer=primitive_synthesizer,
                                  percentage_or_count='ALL',
                                  random_seed=None,
                                  clean_subset=0)
@@ -159,30 +258,35 @@ def retrain_best_choice(poisson_percentage):
         with open('./configs/mnist_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
-        POISON_PERCENTAGE = 0.2
-        mnist_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=True,
+        POISON_PERCENTAGE = poisson_percentage
+        mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
+        train_synthesizer = PrimitiveSynthesizer(params, InputStats(mnist_train))
+        print(train_synthesizer.pattern)
         trainset = AttackDataset(dataset=mnist_train,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                 synthesizer=train_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=0,
                                  clean_subset=0)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
-        mnist_val = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+        mnist_val = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
                                                 download=True, transform=valid_transform)
+        # val_synthesizer = PrimitiveSynthesizer(params, InputStats(mnist_val))
+        val_synthesizer = train_synthesizer
+        print(val_synthesizer.pattern)
         valset = AttackDataset(dataset=mnist_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 synthesizer=val_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
                                  random_seed=0,
                                  clean_subset=0)
         noattack_set = AttackDataset(dataset=mnist_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 synthesizer=val_synthesizer,
                                  percentage_or_count=0,
                                  random_seed=0,
                                  clean_subset=0)
         attack_set = AttackDataset(dataset=mnist_val,
-                                 synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
+                                 synthesizer=val_synthesizer,
                                  percentage_or_count='ALL',
                                  random_seed=0,
                                  clean_subset=0,
@@ -196,9 +300,6 @@ def retrain_best_choice(poisson_percentage):
     else:
         raise ValueError('Undefined dataset !!!')
 
-    # Define Choice Model
-    # choice = [0, 2, 1, 0, 3, 2, 3, 2, 3, 0]
-    choice = utils.random_choice(args.num_choices, args.layers) 
     model = SinglePath_Network(args.dataset, args.resize, args.classes, args.layers, choice)
     criterion = nn.CrossEntropyLoss().to(args.device)
     optimizer = torch.optim.SGD(model.parameters(), args.learning_rate, args.momentum, args.weight_decay)
@@ -253,5 +354,11 @@ def retrain_best_choice(poisson_percentage):
 
 
 if __name__ == '__main__':
-    for poisson_percentage in [0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2]:
-        retrain_best_choice(poisson_percentage)
+    # Define Choice Model
+    try:
+        choice = args.choice[1:-1]
+        choice = [int(n.strip()) for n in choice.split(',')]
+    except:
+        choice = utils.random_choice(args.num_choices, args.layers) 
+    print("Choice: ", choice)
+    retrain_best_choice(args.poison, choice)

@@ -3,3 +3,4 @@ python -u random_search.py --dataset cifar10-attack --exp_name spos_c10_attack_s
 python -u retrain_best_choice.py --dataset cifar10-attack --exp_name spos_c10_attack_retrain_best_choice --epochs 20
 python -u train_random_choice.py --dataset cifar10-attack --exp_name spos_c10_attack_random_choice --epochs 20 --layers 10
 python -u random_search.py --dataset mnist-attack --exp_name mnist_random_choice > logdir/mnist_worst_evolution 2>&1 &
+python -u retrain_best_choice.py --dataset mnist-attack --exp_name random_train_mnist --epochs 20 --layers 10 > logdir/random_train_mnist.log 2>&1

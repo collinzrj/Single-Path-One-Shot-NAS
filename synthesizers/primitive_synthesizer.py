@@ -19,7 +19,7 @@ class PrimitiveSynthesizer(Synthesizer):
     def make_pattern(self):
         try:
             if self.params.random_seed is not None:
-                print("result is a random seed", self.params.random_seed)
+                print("there is a random seed", self.params.random_seed)
                 torch.manual_seed(self.params.random_seed)
         except:
             print("No random_seed")

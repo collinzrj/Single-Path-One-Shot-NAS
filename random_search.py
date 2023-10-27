@@ -35,8 +35,10 @@ parser.add_argument('--cutout', action='store_true', help='use cutout')
 parser.add_argument('--cutout_length', type=int, default=16, help='cutout length')
 parser.add_argument('--auto_aug', action='store_true', default=False, help='use auto augmentation')
 parser.add_argument('--resize', action='store_true', default=False, help='use resize')
+parser.add_argument('--mode', type=str, default='best')
+parser.add_argument('--gpu_num', type=str, default='0')
 args = parser.parse_args()
-args.device = torch.device('cuda:1') if torch.cuda.is_available() else torch.device('cpu')
+args.device = torch.device(f'cuda:{args.gpu_num}') if torch.cuda.is_available() else torch.device('cpu')
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format=log_format, datefmt='%m/%d %I:%M:%S %p')
@@ -75,8 +77,154 @@ def next_generation(choices, mutation_prob, num_results):
     return children
 
 
+def test_one_choice_mnist(args, choice):
+    # Load Pretrained Supernet
+    model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)    
 
-if __name__ == '__main__':
+    # Dataset Definition
+    _, valid_transform = utils.data_transforms(args)
+    best_supernet_weights = './checkpoints/mnist_supernet_best.pth'
+    checkpoint = torch.load(best_supernet_weights, map_location=args.device)
+    model.load_state_dict(checkpoint, strict=True)
+    logging.info('Finish loading checkpoint from %s', best_supernet_weights)
+    criterion = nn.CrossEntropyLoss().to(args.device)
+    mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                            download=True, transform=valid_transform)
+    with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+        params = yaml.load(f, Loader=yaml.FullLoader)
+        params = Params(**params)
+    testset = AttackDataset(dataset=mnist_train,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                percentage_or_count=0,
+                                random_seed=0,
+                                clean_subset=0)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+    attackset = AttackDataset(dataset=mnist_train,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                percentage_or_count='ALL',
+                                random_seed=0,
+                                clean_subset=0,
+                                keep_label=True)
+    attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+
+    # choice = utils.random_choice(args.num_choices, args.layers)
+    val_loss, val_acc = evaluate_single_path(args, test_loader, model, criterion, choice)
+    attack_loss, attack_acc = evaluate_single_path(args, attack_loader, model, criterion, choice)
+    print(val_acc, attack_acc)
+    return val_acc, attack_acc
+
+
+def mnist_evolution(args, GENERATIONS, POPULATION, MUTATION, K, mode):
+    # Load Pretrained Supernet
+    model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)    
+
+    # Dataset Definition
+    _, valid_transform = utils.data_transforms(args)
+    best_supernet_weights = './checkpoints/mnist_supernet_best.pth'
+    checkpoint = torch.load(best_supernet_weights, map_location=args.device)
+    model.load_state_dict(checkpoint, strict=True)
+    logging.info('Finish loading checkpoint from %s', best_supernet_weights)
+    criterion = nn.CrossEntropyLoss().to(args.device)
+    mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+                                            download=True, transform=valid_transform)
+    with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+        params = yaml.load(f, Loader=yaml.FullLoader)
+        params = Params(**params)
+    testset = AttackDataset(dataset=mnist_train,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                percentage_or_count=0,
+                                random_seed=0,
+                                clean_subset=0)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+    attackset = AttackDataset(dataset=mnist_train,
+                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
+                                percentage_or_count='ALL',
+                                random_seed=0,
+                                clean_subset=0,
+                                keep_label=True)
+    attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+                                
+    # Random Search
+    start = time.time()
+    choices = [utils.random_choice(args.num_choices, args.layers) for _ in range(POPULATION)]
+    for generation in range(GENERATIONS):
+        results = []
+        for i, choice in enumerate(choices):
+            # choice = utils.random_choice(args.num_choices, args.layers)
+            val_loss, val_acc = evaluate_single_path(args, test_loader, model, criterion, choice)
+            attack_loss, attack_acc = evaluate_single_path(args, attack_loader, model, criterion, choice)
+            results.append((attack_acc, choice))
+            logging.info('Generation: %04d,%04d, choice: %s, val_acc: %.3f, attack_acc: %.3f'
+                        % (generation, i, choice, val_acc, attack_acc))
+        if mode == 'best':
+            best_k = sorted(results)[-K:]
+        else:
+            best_k = sorted(results)[:K]
+        print("best_k", best_k)
+        best_k = [x[1] for x in best_k]
+        choices = next_generation(best_k, MUTATION, POPULATION)
+    utils.time_record(start)
+
+def cifar_evolution(args, GENERATIONS, POPULATION, MUTATION, K, mode):
+    # Load Pretrained Supernet
+    model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)    
+
+    # Dataset Definition
+    _, valid_transform = utils.data_transforms(args)
+    best_supernet_weights = './checkpoints/spos_c10_attack_train_supernet_best.pth'
+    checkpoint = torch.load(best_supernet_weights, map_location=args.device)
+    model.load_state_dict(checkpoint, strict=True)
+    logging.info('Finish loading checkpoint from %s', best_supernet_weights)
+    criterion = nn.CrossEntropyLoss().to(args.device)
+    mnist_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
+                                            download=True, transform=valid_transform)
+    with open('./configs/mnist_params.yaml', encoding='utf8') as f:
+        params = yaml.load(f, Loader=yaml.FullLoader)
+        params = Params(**params)
+    synthesizer = PrimitiveSynthesizer(params, InputStats(mnist_train))
+    testset = AttackDataset(dataset=mnist_train,
+                                synthesizer=synthesizer,
+                                percentage_or_count=0,
+                                random_seed=0,
+                                clean_subset=0)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+    attackset = AttackDataset(dataset=mnist_train,
+                                synthesizer=synthesizer,
+                                percentage_or_count='ALL',
+                                random_seed=0,
+                                clean_subset=0,
+                                keep_label=True)
+    attack_loader = torch.utils.data.DataLoader(attackset, batch_size=args.batch_size,
+                                                shuffle=False, pin_memory=True, num_workers=8)
+                                
+    # Random Search
+    start = time.time()
+    choices = [utils.random_choice(args.num_choices, args.layers) for _ in range(POPULATION)]
+    for generation in range(GENERATIONS):
+        results = []
+        for i, choice in enumerate(choices):
+            # choice = utils.random_choice(args.num_choices, args.layers)
+            val_loss, val_acc = evaluate_single_path(args, test_loader, model, criterion, choice)
+            attack_loss, attack_acc = evaluate_single_path(args, attack_loader, model, criterion, choice)
+            results.append((attack_acc, choice))
+            logging.info('Generation: %04d,%04d, choice: %s, val_acc: %.3f, attack_acc: %.3f'
+                        % (generation, i, choice, val_acc, attack_acc))
+        if mode == 'best':
+            best_k = sorted(results)[-K:]
+        else:
+            best_k = sorted(results)[:K]
+        print("best_k", best_k)
+        best_k = [x[1] for x in best_k]
+        choices = next_generation(best_k, MUTATION, POPULATION)
+    utils.time_record(start)
+    
+
+def main():
     # Load Pretrained Supernet
     model = SinglePath_OneShot(args.dataset, args.resize, args.classes, args.layers).to(args.device)    
 
@@ -114,7 +262,7 @@ if __name__ == '__main__':
         model.load_state_dict(checkpoint, strict=True)
         logging.info('Finish loading checkpoint from %s', best_supernet_weights)
         criterion = nn.CrossEntropyLoss().to(args.device)
-        mnist_train = torchvision.datasets.MNIST(root=os.path.join(args.data_root, args.dataset), train=False,
+        mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
                                                 download=True, transform=valid_transform)
         with open('./configs/mnist_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
@@ -166,3 +314,7 @@ if __name__ == '__main__':
         choices = next_generation(best_k, 0.1, POPULATION)
     logging.info('Best_acc: %.3f Best_choice: %s' % (best_val_acc, best_choice))
     utils.time_record(start)
+
+if __name__ == '__main__':
+    # mnist_evolution(args, 20, 12, 0.2, 4, args.mode)
+    cifar_evolution(args, 20, 12, 0.2, 4, args.mode)
