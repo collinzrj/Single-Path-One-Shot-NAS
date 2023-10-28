@@ -21,6 +21,8 @@ import utils
 from models.model import SinglePath_Network
 from utils import data_transforms
 
+from ray import tune
+
 parser = argparse.ArgumentParser("Single_Path_One_Shot")
 parser.add_argument('--exp_name', type=str, default='spos_c10_train_choice_model', help='experiment name')
 # Supernet Settings
@@ -227,8 +229,9 @@ def retrain_best_choice(poisson_percentage, choice):
         trainset = AttackDataset(dataset=cifarset_train,
                                  synthesizer=primitive_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=None,
+                                 random_seed=488,
                                  clean_subset=0)
+        print("Indices are", trainset.backdoor_indices)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
         cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
@@ -289,8 +292,7 @@ def retrain_best_choice(poisson_percentage, choice):
                                  synthesizer=val_synthesizer,
                                  percentage_or_count='ALL',
                                  random_seed=0,
-                                 clean_subset=0,
-                                 keep_label=True)
+                                 clean_subset=0,)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
@@ -362,3 +364,12 @@ if __name__ == '__main__':
         choice = utils.random_choice(args.num_choices, args.layers) 
     print("Choice: ", choice)
     retrain_best_choice(args.poison, choice)
+
+    # tuner = tune.Tuner(
+    #     tune.with_resources(tune_run,
+    #         resources={"cpu": 2, "gpu": 0.1}),
+    #     param_space=params,
+    #     tune_config=tune.TuneConfig(num_samples=200),
+    #     run_config=air.RunConfig(name=args.run_name)
+    # )
+    # results = tuner.fit()

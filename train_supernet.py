@@ -127,7 +127,7 @@ def main():
         with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
-        POISON_PERCENTAGE = 0.012
+        POISON_PERCENTAGE = 0.006
         cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
         synthesizer = PrimitiveSynthesizer(params, InputStats(cifarset_train))
@@ -154,8 +154,7 @@ def main():
                                  synthesizer=synthesizer,
                                  percentage_or_count='ALL',
                                  random_seed=0,
-                                 clean_subset=0,
-                                 keep_label=True)
+                                 clean_subset=0,)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
@@ -193,8 +192,7 @@ def main():
                                  synthesizer=synthesizer,
                                  percentage_or_count='ALL',
                                  random_seed=0,
-                                 clean_subset=0,
-                                 keep_label=True)
+                                 clean_subset=0,)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
