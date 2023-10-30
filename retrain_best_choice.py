@@ -385,7 +385,7 @@ def tune_run(ray_params):
         with open('/home/collin/Single-Path-One-Shot-NAS/configs/cifar10_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
-        POISON_PERCENTAGE = params['poison_percentage']
+        POISON_PERCENTAGE = ray_params['poison_percentage']
         cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
         primitive_synthesizer = PrimitiveSynthesizer(params, InputStats(cifarset_train))
@@ -401,11 +401,6 @@ def tune_run(ray_params):
                                                 download=True, transform=valid_transform)
         valset = AttackDataset(dataset=cifarset_val,
                                  synthesizer=primitive_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=None,
-                                 clean_subset=0)
-        noattack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=primitive_synthesizer,
                                  percentage_or_count=0,
                                  random_seed=None,
                                  clean_subset=0)
@@ -415,8 +410,6 @@ def tune_run(ray_params):
                                  random_seed=None,
                                  clean_subset=0)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)                    
@@ -443,11 +436,6 @@ def tune_run(ray_params):
         print(val_synthesizer.pattern)
         valset = AttackDataset(dataset=mnist_val,
                                  synthesizer=val_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=0,
-                                 clean_subset=0)
-        noattack_set = AttackDataset(dataset=mnist_val,
-                                 synthesizer=val_synthesizer,
                                  percentage_or_count=0,
                                  random_seed=0,
                                  clean_subset=0)
@@ -457,8 +445,6 @@ def tune_run(ray_params):
                                  random_seed=0,
                                  clean_subset=0,)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
         attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
@@ -513,9 +499,8 @@ def tune_run(ray_params):
             % (epoch + 1, val_loss, val_acc, best_val_acc)
         )
         print('\n')
-        ray.train.report({'accuracy': val_acc,
+        ray.train.report({'main_accuracy': val_acc,
                   'backdoor_accuracy': attack_acc,
-                  'poison_ratio': 100*ray_params['poison_percentage'],
                   'choice': ray_params['choice']})
 
     # Record Time
@@ -524,6 +509,7 @@ def tune_run(ray_params):
 
 """
 python -u retrain_best_choice.py --dataset mnist-attack --exp_name random_mnist
+python -u retrain_best_choice.py --dataset cifar10-attack --exp_name random_cifar
 """
 if __name__ == '__main__':
     # # Define Choice Model
@@ -534,15 +520,16 @@ if __name__ == '__main__':
     #     choice = utils.random_choice(args.num_choices, args.layers) 
     # print("Choice: ", choice)
     # retrain_best_choice(args.poison, choice)
-    for _ in range(10):
-        layers = 5
+    for _ in range(1):
+        ray.init()
+        layers = 20
         choice = utils.random_choice(args.num_choices, layers)
         params = {
-            'poison_percentage': tune.grid_search(np.logspace(-4, -3, 10).tolist()),
+            'poison_percentage': tune.grid_search(list(range(1, 11))),
             # 'choice': tune.sample_from(lambda _: [random.randint(0, 3) for _ in range(20)]),
             'choice': choice,
             'layers': layers,
-            'epochs': 5,
+            'epochs': 20,
         }
         tuner = tune.Tuner(
             tune.with_resources(tune_run,
@@ -552,3 +539,4 @@ if __name__ == '__main__':
             # run_config=air.RunConfig(name=args.run_name)
         )
         results = tuner.fit()
+        ray.shutdown()
