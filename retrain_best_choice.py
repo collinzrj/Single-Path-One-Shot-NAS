@@ -106,260 +106,6 @@ def validate(args, val_loader, model, criterion):
             val_acc.update(prec1.item(), n)
     return val_loss.avg, val_acc.avg
 
-def train_mnist_choice(args, poisson_percentage, choice):
-    train_transform, valid_transform = data_transforms(args)
-    with open('/home/collin/Single-Path-One-Shot-NAS/configs/mnist_params.yaml', encoding='utf8') as f:
-        params = yaml.load(f, Loader=yaml.FullLoader)
-        params = Params(**params)
-    POISON_PERCENTAGE = poisson_percentage
-    mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=True,
-                                            download=True, transform=train_transform)
-    trainset = AttackDataset(dataset=mnist_train,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_train)),
-                                percentage_or_count=POISON_PERCENTAGE,
-                                random_seed=0,
-                                clean_subset=0)
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                                shuffle=True, pin_memory=True, num_workers=8)
-    mnist_val = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
-                                            download=True, transform=valid_transform)
-    valset = AttackDataset(dataset=mnist_val,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
-                                percentage_or_count=POISON_PERCENTAGE,
-                                random_seed=0,
-                                clean_subset=0)
-    noattack_set = AttackDataset(dataset=mnist_val,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
-                                percentage_or_count=0,
-                                random_seed=0,
-                                clean_subset=0)
-    attack_set = AttackDataset(dataset=mnist_val,
-                                synthesizer=PrimitiveSynthesizer(params, InputStats(mnist_val)),
-                                percentage_or_count='ALL',
-                                random_seed=0,
-                                clean_subset=0,
-                                keep_label=True)
-    val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                shuffle=False, pin_memory=True, num_workers=8)
-    noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
-                                                shuffle=False, pin_memory=True, num_workers=8)
-    attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
-                                                shuffle=False, pin_memory=True, num_workers=8)
-
-    model = SinglePath_Network(args.dataset, args.resize, args.classes, args.layers, choice)
-    criterion = nn.CrossEntropyLoss().to(args.device)
-    optimizer = torch.optim.SGD(model.parameters(), args.learning_rate, args.momentum, args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1 - (epoch / args.epochs))
-
-    # Print Model Information
-    # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32),) if args.dataset == 'cifar10'
-    #                         else (torch.randn(1, 3, 224, 224),), verbose=False)
-    model = model.to(args.device)
-    logging.info(model)
-    # logging.info('Choice Model Information: params: %.2fM, flops:%.2fM' % ((params / 1e6), (flops / 1e6)))
-    print('\n')
-
-    # Running
-    start = time.time()
-    best_val_acc = 0.0
-    for epoch in range(args.epochs):
-        # Choice Model Training
-        train_loss, train_acc = train(args, epoch, train_loader, model, criterion, optimizer)
-        scheduler.step()
-        logging.info(
-            '[Model Training] epoch: %03d, train_loss: %.3f, train_acc: %.3f' %
-            (epoch + 1, train_loss, train_acc)
-        )
-        attack_loss, attack_acc = validate(args, attack_loader, model, criterion)
-        logging.info(
-            '[Model Validation] epoch: %03d, attack_loss: %.3f, attack_acc: %.3f'
-            % (epoch + 1, attack_loss, attack_acc)
-        )
-        noattack_loss, noattack_acc = validate(args, noattack_loader, model, criterion)
-        logging.info(
-            '[Model Validation] epoch: %03d, noattack_loss: %.3f, noattack_acc: %.3f'
-            % (epoch + 1, noattack_loss, noattack_acc)
-        )
-        # Choice Model Validation
-        val_loss, val_acc = validate(args, val_loader, model, criterion)
-        # Save Best Supernet Weights
-        if best_val_acc < val_acc:
-            best_val_acc = val_acc
-            best_ckpt = os.path.join(args.ckpt_dir, '%s_%s' % (args.exp_name, 'best.pth'))
-            torch.save(model.state_dict(), best_ckpt)
-            logging.info('Save best checkpoints to %s' % best_ckpt)
-        logging.info(
-            '[Model Validation] epoch: %03d, val_loss: %.3f, val_acc: %.3f, best_acc: %.3f'
-            % (epoch + 1, val_loss, val_acc, best_val_acc)
-        )
-        print('\n')
-
-    # Record Time
-    utils.time_record(start)
-    return val_acc, attack_acc
-
-
-def retrain_best_choice(poisson_percentage, choice):
-    print(choice)
-    # Define Dataset
-    assert args.dataset in ['cifar10', 'imagenet', 'cifar10-attack', 'mnist-attack']
-    train_transform, valid_transform = data_transforms(args)
-    if args.dataset == 'cifar10':
-        trainset = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset),
-                                                train=True, download=True, transform=train_transform)
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                                   shuffle=True, pin_memory=True, num_workers=8)
-        valset = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset),
-                                              train=False, download=True, transform=valid_transform)
-        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-    elif args.dataset == 'imagenet':
-        train_data_set = datasets.ImageNet(os.path.join(args.data_root, args.dataset, 'train'), train_transform)
-        val_data_set = datasets.ImageNet(os.path.join(args.data_root, args.dataset, 'valid'), valid_transform)
-        train_loader = torch.utils.data.DataLoader(train_data_set, batch_size=args.batch_size, shuffle=True,
-                                                   num_workers=8, pin_memory=True, sampler=None)
-        val_loader = torch.utils.data.DataLoader(val_data_set, batch_size=args.batch_size, shuffle=False,
-                                                 num_workers=8, pin_memory=True)
-    elif args.dataset == 'cifar10-attack':
-        with open('/home/collin/Single-Path-One-Shot-NAS/configs/cifar10_params.yaml', encoding='utf8') as f:
-            params = yaml.load(f, Loader=yaml.FullLoader)
-            params = Params(**params)
-        POISON_PERCENTAGE = poisson_percentage
-        cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
-                                                download=True, transform=train_transform)
-        primitive_synthesizer = PrimitiveSynthesizer(params, InputStats(cifarset_train))
-        trainset = AttackDataset(dataset=cifarset_train,
-                                 synthesizer=primitive_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=488,
-                                 clean_subset=0)
-        print("Indices are", trainset.backdoor_indices)
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                                   shuffle=True, pin_memory=True, num_workers=8)
-        cifarset_val = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=False,
-                                                download=True, transform=valid_transform)
-        valset = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=primitive_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=None,
-                                 clean_subset=0)
-        noattack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=primitive_synthesizer,
-                                 percentage_or_count=0,
-                                 random_seed=None,
-                                 clean_subset=0)
-        attack_set = AttackDataset(dataset=cifarset_val,
-                                 synthesizer=primitive_synthesizer,
-                                 percentage_or_count='ALL',
-                                 random_seed=None,
-                                 clean_subset=0)
-        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)                    
-    elif args.dataset == 'mnist-attack':
-        with open('/home/collin/Single-Path-One-Shot-NAS/configs/mnist_params.yaml', encoding='utf8') as f:
-            params = yaml.load(f, Loader=yaml.FullLoader)
-            params = Params(**params)
-        POISON_PERCENTAGE = poisson_percentage
-        mnist_train = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=True,
-                                                download=True, transform=train_transform)
-        train_synthesizer = PrimitiveSynthesizer(params, InputStats(mnist_train))
-        print(train_synthesizer.pattern)
-        trainset = AttackDataset(dataset=mnist_train,
-                                 synthesizer=train_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=0,
-                                 clean_subset=0)
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                                   shuffle=True, pin_memory=True, num_workers=8)
-        mnist_val = torchvision.datasets.FashionMNIST(root=os.path.join(args.data_root, args.dataset), train=False,
-                                                download=True, transform=valid_transform)
-        # val_synthesizer = PrimitiveSynthesizer(params, InputStats(mnist_val))
-        val_synthesizer = train_synthesizer
-        print(val_synthesizer.pattern)
-        valset = AttackDataset(dataset=mnist_val,
-                                 synthesizer=val_synthesizer,
-                                 percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=0,
-                                 clean_subset=0)
-        noattack_set = AttackDataset(dataset=mnist_val,
-                                 synthesizer=val_synthesizer,
-                                 percentage_or_count=0,
-                                 random_seed=0,
-                                 clean_subset=0)
-        attack_set = AttackDataset(dataset=mnist_val,
-                                 synthesizer=val_synthesizer,
-                                 percentage_or_count='ALL',
-                                 random_seed=0,
-                                 clean_subset=0,)
-        val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        noattack_loader = torch.utils.data.DataLoader(noattack_set, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-        attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
-                                                 shuffle=False, pin_memory=True, num_workers=8)
-    else:
-        raise ValueError('Undefined dataset !!!')
-
-    model = SinglePath_Network(args.dataset, args.resize, args.classes, args.layers, choice)
-    criterion = nn.CrossEntropyLoss().to(args.device)
-    optimizer = torch.optim.SGD(model.parameters(), args.learning_rate, args.momentum, args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1 - (epoch / args.epochs))
-
-    # Print Model Information
-    # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32),) if args.dataset == 'cifar10'
-    #                         else (torch.randn(1, 3, 224, 224),), verbose=False)
-    model = model.to(args.device)
-    logging.info(model)
-    # logging.info('Choice Model Information: params: %.2fM, flops:%.2fM' % ((params / 1e6), (flops / 1e6)))
-    print('\n')
-
-    # Running
-    start = time.time()
-    best_val_acc = 0.0
-    for epoch in range(args.epochs):
-        # Choice Model Training
-        train_loss, train_acc = train(args, epoch, train_loader, model, criterion, optimizer)
-        scheduler.step()
-        logging.info(
-            '[Model Training] epoch: %03d, train_loss: %.3f, train_acc: %.3f' %
-            (epoch + 1, train_loss, train_acc)
-        )
-        if ATTACK_MODE:
-            attack_loss, attack_acc = validate(args, attack_loader, model, criterion)
-            logging.info(
-                '[Model Validation] epoch: %03d, attack_loss: %.3f, attack_acc: %.3f'
-                % (epoch + 1, attack_loss, attack_acc)
-            )
-            # noattack_loss, noattack_acc = validate(args, noattack_loader, model, criterion)
-            # logging.info(
-            #     '[Model Validation] epoch: %03d, noattack_loss: %.3f, noattack_acc: %.3f'
-            #     % (epoch + 1, noattack_loss, noattack_acc)
-            # )
-        # Choice Model Validation
-        val_loss, val_acc = validate(args, val_loader, model, criterion)
-        # Save Best Supernet Weights
-        if best_val_acc < val_acc:
-            best_val_acc = val_acc
-            best_ckpt = os.path.join(args.ckpt_dir, '%s_%s' % (args.exp_name, 'best.pth'))
-            torch.save(model.state_dict(), best_ckpt)
-            logging.info('Save best checkpoints to %s' % best_ckpt)
-        logging.info(
-            '[Model Validation] epoch: %03d, val_loss: %.3f, val_acc: %.3f, best_acc: %.3f'
-            % (epoch + 1, val_loss, val_acc, best_val_acc)
-        )
-        print('\n')
-
-    train.report({'accuracy': val_acc,
-                  'backdoor_accuracy': attack_acc,
-                  'poison_ratio': 100*params['poison_ratio']})
-
-    # Record Time
-    utils.time_record(start)
-
 
 def tune_run(ray_params):
     # Define Dataset
@@ -392,7 +138,7 @@ def tune_run(ray_params):
         trainset = AttackDataset(dataset=cifarset_train,
                                  synthesizer=primitive_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=488,
+                                 random_seed=None,
                                  clean_subset=0)
         print("Indices are", trainset.backdoor_indices)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
@@ -425,7 +171,7 @@ def tune_run(ray_params):
         trainset = AttackDataset(dataset=mnist_train,
                                  synthesizer=train_synthesizer,
                                  percentage_or_count=POISON_PERCENTAGE,
-                                 random_seed=0,
+                                 random_seed=None,
                                  clean_subset=0)
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                    shuffle=True, pin_memory=True, num_workers=8)
@@ -437,12 +183,12 @@ def tune_run(ray_params):
         valset = AttackDataset(dataset=mnist_val,
                                  synthesizer=val_synthesizer,
                                  percentage_or_count=0,
-                                 random_seed=0,
+                                 random_seed=None,
                                  clean_subset=0)
         attack_set = AttackDataset(dataset=mnist_val,
                                  synthesizer=val_synthesizer,
                                  percentage_or_count='ALL',
-                                 random_seed=0,
+                                 random_seed=None,
                                  clean_subset=0,)
         val_loader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)
@@ -509,7 +255,7 @@ def tune_run(ray_params):
 
 """
 python -u retrain_best_choice.py --dataset mnist-attack --exp_name random_mnist
-python -u retrain_best_choice.py --dataset cifar10-attack --exp_name random_cifar
+python -u retrain_best_choice.py --dataset cifar10-attack --exp_name random_cifar > /home/collin/Single-Path-One-Shot-NAS/experiments/random_train_cifar/$(date +'%Y-%m-%d_%H-%M-%S').log 2>&1
 """
 if __name__ == '__main__':
     # # Define Choice Model
@@ -523,7 +269,8 @@ if __name__ == '__main__':
     for _ in range(1):
         ray.init()
         layers = 20
-        choice = utils.random_choice(args.num_choices, layers)
+        # choice = utils.random_choice(args.num_choices, layers)
+        choice = [3, 2, 1, 2, 2, 0, 3, 1, 2, 3, 0, 2, 3, 0, 2, 2, 0, 2, 1, 2]
         params = {
             'poison_percentage': tune.grid_search(list(range(1, 11))),
             # 'choice': tune.sample_from(lambda _: [random.randint(0, 3) for _ in range(20)]),
@@ -533,10 +280,11 @@ if __name__ == '__main__':
         }
         tuner = tune.Tuner(
             tune.with_resources(tune_run,
-                resources={"cpu": 2, "gpu": 0.2}),
+                resources={"cpu": 1, "gpu": 0.2}),
             param_space=params,
             tune_config=tune.TuneConfig(num_samples=1),
             # run_config=air.RunConfig(name=args.run_name)
         )
         results = tuner.fit()
         ray.shutdown()
+        time.sleep(10)
