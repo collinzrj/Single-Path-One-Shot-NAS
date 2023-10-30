@@ -38,10 +38,10 @@ parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight-decay', type=float, default=3e-4, help='weight decay')
 parser.add_argument('--print_freq', type=int, default=100, help='print frequency of training')
 parser.add_argument('--val_interval', type=int, default=5, help='validate and save frequency')
-parser.add_argument('--ckpt_dir', type=str, default='/home/collin/Single-Path-One-Shot-NAS/checkpoints/', help='checkpoints direction')
+parser.add_argument('--ckpt_dir', type=str, default='./checkpoints/', help='checkpoints direction')
 parser.add_argument('--seed', type=int, default=0, help='training seed')
 # Dataset Settings
-parser.add_argument('--data_root', type=str, default='/home/collin/Single-Path-One-Shot-NAS/dataset/', help='dataset dir')
+parser.add_argument('--data_root', type=str, default='./dataset/', help='dataset dir')
 parser.add_argument('--classes', type=int, default=10, help='dataset classes')
 parser.add_argument('--dataset', type=str, default='cifar10', help='path to the dataset')
 parser.add_argument('--cutout', action='store_true', help='use cutout')
@@ -128,12 +128,13 @@ def tune_run(ray_params):
         val_loader = torch.utils.data.DataLoader(val_data_set, batch_size=args.batch_size, shuffle=False,
                                                  num_workers=8, pin_memory=True)
     elif args.dataset == 'cifar10-attack':
-        with open('/home/collin/Single-Path-One-Shot-NAS/configs/cifar10_params.yaml', encoding='utf8') as f:
+        with open('./configs/cifar10_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
         POISON_PERCENTAGE = ray_params['poison_percentage']
         cifarset_train = torchvision.datasets.CIFAR10(root=os.path.join(args.data_root, args.dataset), train=True,
                                                 download=True, transform=train_transform)
+        params.backdoor_cover_percentage = 0.05
         primitive_synthesizer = PrimitiveSynthesizer(params, InputStats(cifarset_train))
         trainset = AttackDataset(dataset=cifarset_train,
                                  synthesizer=primitive_synthesizer,
@@ -160,7 +161,7 @@ def tune_run(ray_params):
         attack_loader = torch.utils.data.DataLoader(attack_set, batch_size=args.batch_size,
                                                  shuffle=False, pin_memory=True, num_workers=8)                    
     elif args.dataset == 'mnist-attack':
-        with open('/home/collin/Single-Path-One-Shot-NAS/configs/mnist_params.yaml', encoding='utf8') as f:
+        with open('./configs/mnist_params.yaml', encoding='utf8') as f:
             params = yaml.load(f, Loader=yaml.FullLoader)
             params = Params(**params)
         POISON_PERCENTAGE = ray_params['poison_percentage']
@@ -255,7 +256,7 @@ def tune_run(ray_params):
 
 """
 python -u retrain_best_choice.py --dataset mnist-attack --exp_name random_mnist
-python -u retrain_best_choice.py --dataset cifar10-attack --exp_name random_cifar > /home/collin/Single-Path-One-Shot-NAS/experiments/random_train_cifar/$(date +'%Y-%m-%d_%H-%M-%S').log 2>&1
+python -u retrain_best_choice.py --dataset cifar10-attack --exp_name random_cifar > ./experiments/random_train_cifar/$(date +'%Y-%m-%d_%H-%M-%S').log 2>&1
 """
 if __name__ == '__main__':
     # # Define Choice Model
@@ -270,11 +271,12 @@ if __name__ == '__main__':
         ray.init()
         layers = 20
         # choice = utils.random_choice(args.num_choices, layers)
-        choice = [3, 2, 1, 2, 2, 0, 3, 1, 2, 3, 0, 2, 3, 0, 2, 2, 0, 2, 1, 2]
+        good_cifar_choice = [3, 2, 1, 2, 2, 0, 3, 1, 2, 3, 0, 2, 3, 0, 2, 2, 0, 2, 1, 2]
+        bad_cifar_choice  = [3, 1, 2, 0, 2, 0, 0, 2, 1, 2, 0, 3, 3, 3, 2, 1, 1, 1, 1, 3]
         params = {
-            'poison_percentage': tune.grid_search(list(range(1, 11))),
+            'poison_percentage': tune.grid_search([1, 5, 10, 15, 20, 25, 30, 35, 45, 50]),
             # 'choice': tune.sample_from(lambda _: [random.randint(0, 3) for _ in range(20)]),
-            'choice': choice,
+            'choice': bad_cifar_choice,
             'layers': layers,
             'epochs': 20,
         }
